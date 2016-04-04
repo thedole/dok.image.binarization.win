@@ -1,16 +1,17 @@
 ﻿using System;
-using Emgu.CV;
-using Emgu.CV.CvEnum;
 using System.IO;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using OpenCvSharp.CPlusPlus;
+using OpenCvSharp;
 
 namespace dok.image.binarization.win
 {
     public class ImageUtilities
     {
-        public static Mat ReadImage(string path, LoadImageType imageType = LoadImageType.AnyColor)
+        public static Mat ReadImage(string path, LoadMode loadMode = LoadMode.AnyColor)
         {
-            var img = CvInvoke.Imread(path, imageType);
+            var img = Cv2.ImRead(path, loadMode);
             return img;
         }
 

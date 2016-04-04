@@ -1,6 +1,5 @@
-﻿using dok.image.binarization.win;
-using Emgu.CV;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+using OpenCvSharp.CPlusPlus;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
