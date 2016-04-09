@@ -22,13 +22,13 @@ namespace dok.image.binarization.win
         private static readonly Size SampleSize = new Size(10, 10);
         private static readonly Rect CenterSample = new Rect(CenterOfProcessingImage, SampleSize);
 
-        public static Mat ReadImage(string path, LoadMode loadMode = LoadMode.AnyColor)
+        private static Mat ReadImage(string path, LoadMode loadMode = LoadMode.AnyColor)
         {
             var img = Cv2.ImRead(path, loadMode);
             return img;
         }
 
-        public static IEnumerable<Mat> ReadImageFolder(string path)
+        private static IEnumerable<Mat> ReadImageFolder(string path)
         {
             try
             {
