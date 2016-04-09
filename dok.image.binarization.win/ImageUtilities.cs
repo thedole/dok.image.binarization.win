@@ -187,7 +187,7 @@ namespace dok.image.binarization.win
                 var contours = sourceMat.FindContours(MinAreaForRegionOfInterest);
 
                 sourceMat.DrawContours(contours, -1, Scalar.Green, 10);
-                Cv2.ImShow("Hell hole", sourceMat);
+                //Cv2.ImShow("Hell hole", sourceMat);
 
                 var bitmapSource = sourceMat
                     .Clone()
@@ -275,7 +275,7 @@ namespace dok.image.binarization.win
             var meanStdDevMax = roiMax.MeanStdDev();
             roiMin.Dispose();
             roiMax.Dispose();
-            var threshold = (meanStdDevMin.Mean.Val0 + meanStdDevMax.Mean.Val0) * 0.5;
+            var threshold = (meanStdDevMin.Mean.Val0 + meanStdDevMax.Mean.Val0) * 0.2;
             return threshold;
         }
 
