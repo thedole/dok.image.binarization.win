@@ -91,6 +91,7 @@
     <Compile Include="ImageCoordinate.cs" />
     <Compile Include="ImageDimensions.cs" />
     <Compile Include="ImageUtilities.cs" />
+    <Compile Include="LoadMode.cs" />
     <Compile Include="MeanStdDev.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RegionOfInterest.cs" />

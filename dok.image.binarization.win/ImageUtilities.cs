@@ -22,13 +22,13 @@ namespace dok.image.binarization.win
         private static readonly Size SampleSize = new Size(10, 10);
         private static readonly Rect CenterSample = new Rect(CenterOfProcessingImage, SampleSize);
 
-        private static Mat ReadImage(string path, LoadMode loadMode = LoadMode.AnyColor)
+        public static BitmapSource ReadImage(string path, LoadMode loadMode = LoadMode.AnyColor)
         {
-            var img = Cv2.ImRead(path, loadMode);
-            return img;
+            var img = Cv2.ImRead(path, (OpenCvSharp.LoadMode)loadMode);
+            return img.ToBitmapSource();
         }
 
-        private static IEnumerable<Mat> ReadImageFolder(string path)
+        private static IEnumerable<BitmapSource> ReadImageFolder(string path)
         {
             try
             {
@@ -36,7 +36,7 @@ namespace dok.image.binarization.win
                 {
                     throw new ArgumentOutOfRangeException(nameof(path), path, "Folder does not exist");
                 }
-                var images = new List<Mat>();
+                var images = new List<BitmapSource>();
                 foreach (var fileName in Directory.EnumerateFileSystemEntries(path))
                 {
                     if (!File.Exists(fileName))
@@ -165,7 +165,7 @@ namespace dok.image.binarization.win
                                     .ToIplImage();
                     IplImage destinationIplImage = sourceIplImage.Binarize(size: 51, k: 0.2, r: actualR);
 
-                    var outputBitmap = destinationIplImage.ToBitmap();
+                    var outputBitmap = destinationIplImage.Clone().ToBitmap();
                     return outputBitmap;
                 }
             }
@@ -179,16 +179,22 @@ namespace dok.image.binarization.win
             }
         }
 
-        public static Bitmap FindAndShowRegionOfInterest(this BitmapSource sourceImage, BitmapSource canvas = null)
+        public static BitmapSource FindAndShowRegionOfInterest(this BitmapSource sourceImage, BitmapSource canvas = null)
         {
-            var sourceMat = sourceImage.ToMat();
-            var outMat = canvas != null ? canvas.ToMat() : sourceImage.ToMat().Clone();
-            var contours = sourceMat.FindContours(MinAreaForRegionOfInterest);
+            using (var sourceMat = sourceImage.ToMat())
+            using (var outMat = (canvas != null) ? canvas.ToMat() : sourceMat)
+            {
+                var contours = sourceMat.FindContours(MinAreaForRegionOfInterest);
 
-            sourceMat.DrawContours(contours, -1, Scalar.Green, 10);
-            Cv2.ImShow("Hell hole", sourceMat);
+                sourceMat.DrawContours(contours, -1, Scalar.Green, 10);
+                Cv2.ImShow("Hell hole", sourceMat);
 
-            return outMat.ToBitmap();
+                var bitmapSource = sourceMat
+                    .Clone()
+                    .ToBitmapSource();
+
+                return bitmapSource;
+            }
             
         }
 
@@ -224,55 +230,40 @@ namespace dok.image.binarization.win
 
         private static IEnumerable<IEnumerable<Point>> FindContours(this Mat sourceMat, double minArea)
         {
-            var reducedMat = sourceMat.ReduceForProcessing();
-            double threshold = GetThreshold(reducedMat);
+            double threshold;
+            using ( var reducedMat = sourceMat.ReduceForProcessing() )
+            {
+              threshold = GetThreshold(reducedMat);
+                using (var binMat = reducedMat.Threshold(threshold, 255, ThresholdType.Binary))
+                using (var edges = binMat.Canny(10, 20))
+                using(var dilated = edges.Dilate(Cv2.GetStructuringElement(StructuringElementShape.Cross, new Size(3, 3))))
+                {
+                    //Cv2.ImShow("Binary", binMat);
+                    //Cv2.ImShow("Dilated", dilated);
 
-            var binMat = reducedMat.Threshold(threshold, 255, ThresholdType.Binary);
-            //Cv2.ImShow("Binary", binMat);
-            var edges = binMat.Canny(10, 20);
-            //var edges = reducedMat.Canny(10, 20);
-            var dilated = edges.Dilate(Cv2.GetStructuringElement(StructuringElementShape.Cross, new Size(3, 3)));
-            //Cv2.ImShow("Dilated", dilated);
+                    var contours = dilated.FindContoursAsArray(ContourRetrieval.List, ContourChain.ApproxSimple);
+                    var largestContours = contours
+                            .Select(c =>
+                            {
+                                var area = Cv2.ContourArea(c, false);
+                                var contour = Cv2.ApproxPolyDP(c, 50, true);
+                                return new Contour { Points = contour.ToArray(), Area = area };
+                            })
+                                .Where(c => c.Area > MinAreaForRegionOfInterest);
 
-            var contours = dilated.FindContoursAsArray(ContourRetrieval.List, ContourChain.ApproxSimple);
-            var largestContours = contours
-                    .Select(c =>
-                    {
-                        var area = Cv2.ContourArea(c, false);
-                        var contour = Cv2.ApproxPolyDP(c, 50, true);
-                        return new Contour { Points = contour.ToArray(), Area = area };
-                    })
-                        .Where(c => c.Area > MinAreaForRegionOfInterest);
+                    var contoursAsArray = largestContours.Select(c => c.Points.ToArray());
+                    var processingSizeRois = contoursAsArray
+                        .Select(c => new RegionOfInterest(c, ProcessingSize));
 
+                    var scaledRois = processingSizeRois
+                        .Select(c => c.ScaleWith(sourceMat.Size().ToImageDimensions()));
 
-            //var largestContour = contours
-            //        .Aggregate(
-            //            new Contour { Area = 0 },
-            //            (acc, c) =>
-            //            {
-            //                var area = Cv2.ContourArea(c, false);
-            //                return area > acc.Area ? new Contour { Points = c, Area = area } : acc;
-            //            });
-
-            //var simplifiedContour = Cv2.ApproxPolyDP(largestContour.Points,  50, true);
-            //var simplifiedContourAsArray = simplifiedContour.ToArray();
-
-            var dimensions = reducedMat.GetProcessingSize().ToImageDimensions();
-            var contoursAsArray = largestContours.Select(c => c.Points.ToArray());
-            var processingSizeRois = contoursAsArray
-                .Select(c => new RegionOfInterest(c, dimensions));
+                    var scaledAsPoints = scaledRois.Select(c => c.Points.Select(ic => ic.ToPoint()));
 
 
-            //reducedMat.DrawContours(largestContours.Select(c => c.Points), -1, Scalar.Green, 10);
-            //Cv2.ImShow("Hell hole", reducedMat);
-
-            var scaledRois = processingSizeRois
-                .Select(c => c.ScaleWith(sourceMat.Size().ToImageDimensions()));
-
-            var scaledAsPoints = scaledRois.Select(c => c.Points.Select(ic => ic.ToPoint()));
-
-            
-            return scaledAsPoints;
+                    return scaledAsPoints;
+                }
+            }
         }
 
         private static double GetThreshold(this Mat reducedMat)
@@ -282,6 +273,8 @@ namespace dok.image.binarization.win
 
             var meanStdDevMin = roiMin.MeanStdDev();
             var meanStdDevMax = roiMax.MeanStdDev();
+            roiMin.Dispose();
+            roiMax.Dispose();
             var threshold = (meanStdDevMin.Mean.Val0 + meanStdDevMax.Mean.Val0) * 0.5;
             return threshold;
         }
