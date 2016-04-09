@@ -240,7 +240,7 @@ namespace dok.image.binarization.win
                     {
                         var area = Cv2.ContourArea(c, false);
                         var contour = Cv2.ApproxPolyDP(c, 50, true);
-                        return new Contour { Points = contour, Area = area };
+                        return new Contour { Points = contour.ToArray(), Area = area };
                     })
                         .Where(c => c.Area > MinAreaForRegionOfInterest);
 
