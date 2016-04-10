@@ -179,7 +179,7 @@ namespace dok.image.binarization.win
             }
         }
 
-        public static BitmapSource FindAndShowRegionOfInterest(this BitmapSource sourceImage, BitmapSource canvas = null)
+        public static BitmapSource FindAndShowContours(this BitmapSource sourceImage, BitmapSource canvas = null)
         {
             using (var sourceMat = sourceImage.ToMat())
             using (var outMat = (canvas != null) ? canvas.ToMat() : sourceMat)
@@ -198,7 +198,7 @@ namespace dok.image.binarization.win
             
         }
 
-        public static IEnumerable<RegionOfInterest> FindRegionOfInterest(this BitmapSource bitmapSource)
+        public static IEnumerable<RegionOfInterest> FindContours(this BitmapSource bitmapSource)
         {
             var sourceMat = bitmapSource.ToMat();
 
@@ -211,21 +211,6 @@ namespace dok.image.binarization.win
             
             return rois;
 
-        }
-
-        private static IEnumerable<int[]> MapImageCoordinatesToIntArray(IEnumerable<ImageCoordinate> imageCoordinates)
-        {
-            return imageCoordinates.Select(ic => ic.ToArray());
-        }
-
-        private static Func<IEnumerable<Point>, IEnumerable<ImageCoordinate>> MapPointsToImageCoordinates(ImageDimensions dimensions)
-        {
-            return p => p.Select(point => new ImageCoordinate
-            {
-                OriginalImageDimensions = dimensions,
-                OriginalImageXCoordinate = point.X,
-                OriginalImageYCoordinate = point.Y
-            });
         }
 
         private static IEnumerable<IEnumerable<Point>> FindContours(this Mat sourceMat, double minArea)
@@ -264,6 +249,21 @@ namespace dok.image.binarization.win
                     return scaledAsPoints;
                 }
             }
+        }
+
+        private static IEnumerable<int[]> MapImageCoordinatesToIntArray(IEnumerable<ImageCoordinate> imageCoordinates)
+        {
+            return imageCoordinates.Select(ic => ic.ToArray());
+        }
+
+        private static Func<IEnumerable<Point>, IEnumerable<ImageCoordinate>> MapPointsToImageCoordinates(ImageDimensions dimensions)
+        {
+            return p => p.Select(point => new ImageCoordinate
+            {
+                OriginalImageDimensions = dimensions,
+                OriginalImageXCoordinate = point.X,
+                OriginalImageYCoordinate = point.Y
+            });
         }
 
         private static double GetThreshold(this Mat reducedMat)
