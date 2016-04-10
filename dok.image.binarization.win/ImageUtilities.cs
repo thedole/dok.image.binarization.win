@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Windows.Interop;
 using System.Windows;
 using System.Linq;
+using dok.image.binarization.win.internalclasses;
 
 namespace dok.image.binarization.win
 {
@@ -124,16 +125,6 @@ namespace dok.image.binarization.win
             };
         }
 
-        private static IEnumerable<double> AsEnumerable(this Scalar source, int channels)
-        {
-            var enumerable = new List<double>(channels);
-            for (int i = 0; i < channels; i++)
-            {
-                enumerable.Add(source[i]);
-            }
-            return enumerable;
-        }
-
         public static int IndexOfBiggestStdDev(this MeanStdDev meanStdDev)
         {
             var stdDev = meanStdDev.StdDev;
@@ -188,6 +179,28 @@ namespace dok.image.binarization.win
             }
         }
 
+        public static BitmapSource CropToLargestContour(this BitmapSource source)
+        {
+            using (var sourceMat = source.ToMat())
+            {
+                var outMat = sourceMat.CropToLargestContour();
+                return outMat.ToBitmapSource();
+            }
+        }
+
+        private static Mat CropToLargestContour(this Mat sourceMat)
+        {
+            var emptyContour = new Contour(new int[][] {}, sourceMat.Size().ToImageDimensions(), 0);
+
+            var contours = sourceMat.FindContours(MinAreaForRegionOfInterest);
+            var largestContour = contours
+                .Aggregate(emptyContour, (a, c) => c.Area > a.Area ? c : a)
+                .ToPointArray();
+
+            var boundingBox = Cv2.BoundingRect(largestContour);
+            return sourceMat[boundingBox].Clone();
+        }
+
         public static BitmapSource FindAndShowContours(this BitmapSource sourceImage, BitmapSource canvas = null)
         {
             using (var sourceMat = sourceImage.ToMat())
@@ -195,7 +208,7 @@ namespace dok.image.binarization.win
             {
                 var contours = sourceMat.FindContours(MinAreaForRegionOfInterest);
 
-                sourceMat.DrawContours(contours.Select(MapContourToPoints), -1, Scalar.Green, 10);
+                DrawContours(sourceMat, contours);
                 //Cv2.ImShow("Hell hole", sourceMat);
 
                 var bitmapSource = sourceMat
@@ -204,6 +217,11 @@ namespace dok.image.binarization.win
 
                 return bitmapSource;
             }
+        }
+
+        private static void DrawContours(Mat sourceMat, IEnumerable<Contour> contours, int width = 10)
+        {
+            sourceMat.DrawContours(contours.Select(InternalConverter.MapContourToPoints), -1, Scalar.Green, width);
         }
 
         public static IEnumerable<Contour> FindContours(this BitmapSource bitmapSource)
@@ -232,53 +250,22 @@ namespace dok.image.binarization.win
                         //Cv2.ImShow("Binary", binMat);
                         //Cv2.ImShow("Dilated", dilated);
 
-                        var contours = dilated.FindContoursAsArray(ContourRetrieval.List, ContourChain.ApproxSimple);
-                        var largestContours = contours
-                                .Select(c =>
-                                {
-                                    var area = Cv2.ContourArea(c, false);
-                                    var contour = Cv2.ApproxPolyDP(c, 50, true);
-                                    return new Contour (contour.ToArray(), ProcessingSize, area);
-                                })
-                                .Where(c => c.Area > MinAreaForRegionOfInterest);
+                        var contours = dilated
+                            .FindContoursAsArray(ContourRetrieval.List, ContourChain.ApproxSimple)
+                            .Select(c =>
+                            {
+                                var area = Cv2.ContourArea(c, false);
+                                var contour = Cv2.ApproxPolyDP(c, 50, true);
+                                return new Contour(contour.ToArray(), ProcessingSize, area);
+                            });
 
-                        var scaledRois = largestContours
+                        var scaledContours = contours
                             .Select(c => c.ScaleWith(sourceDimensions));
 
-                        return scaledRois;
+                        return scaledContours;
                     }
                 }
             }
-        }
-
-        private static IEnumerable<int[]> MapImageCoordinatesToIntArray(IEnumerable<ImageCoordinate> imageCoordinates)
-        {
-            return imageCoordinates.Select(ic => ic.ToArray());
-        }
-
-        private static IEnumerable<Point> MapImageCoordinatesToPoints(IEnumerable<ImageCoordinate> imageCoordinates)
-        {
-            return imageCoordinates.Select(ic => ic.ToPoint());
-        }
-
-        private static IEnumerable<IEnumerable<Point>> MapContoursToPoints(IEnumerable<Contour> contours)
-        {
-            return contours.Select(MapContourToPoints);
-        }
-
-        private static IEnumerable<Point> MapContourToPoints(Contour c)
-        {
-            return c.Points.Select(ic => ic.ToPoint());
-        }
-
-        private static Func<IEnumerable<Point>, IEnumerable<ImageCoordinate>> MapPointsToImageCoordinates(ImageDimensions dimensions)
-        {
-            return p => p.Select(point => new ImageCoordinate
-            {
-                OriginalImageDimensions = dimensions,
-                OriginalImageXCoordinate = point.X,
-                OriginalImageYCoordinate = point.Y
-            });
         }
 
         private static double GetThreshold(this Mat reducedMat)
@@ -375,35 +362,6 @@ namespace dok.image.binarization.win
             return loc
                 .BoundX(sampleSize, imageSize)
                 .BoundY(sampleSize, imageSize);
-        }
-
-        private static int[][] ToArray(this Point[] points)
-        {
-            return points
-                .Select(p => new[] { p.X, p.Y })
-                .ToArray();
-        }
-
-        private static Point[] ToPointArray(this Contour roi)
-        {
-            var pointArray = roi.Points
-                .Select(ToPoint)
-                .ToArray();
-
-            return pointArray;
-        }
-
-        private static Point ToPoint(this ImageCoordinate imageCoordinate)
-        {
-            return new Point(imageCoordinate.OriginalImageXCoordinate, imageCoordinate.OriginalImageYCoordinate);
-        }
-
-        private static ImageDimensions ToImageDimensions(this Size size)
-        {
-            return new ImageDimensions {
-                Width = size.Width,
-                Height = size.Height
-            };
         }
 
         private static Size GetProcessingSize(this Mat sourceMat)

@@ -1,4 +1,7 @@
-﻿namespace dok.image.binarization.win
+﻿using System;
+using OpenCvSharp.CPlusPlus;
+
+namespace dok.image.binarization.win
 {
     public class ImageCoordinate
     {

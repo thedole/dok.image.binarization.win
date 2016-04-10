@@ -87,6 +87,8 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Converter.cs" />
+    <Compile Include="internalclasses\InternalConverter.cs" />
     <Compile Include="ImageCoordinate.cs" />
     <Compile Include="ImageDimensions.cs" />
     <Compile Include="ImageUtilities.cs" />
