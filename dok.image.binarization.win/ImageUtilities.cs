@@ -6,7 +6,6 @@ using System.Drawing;
 using System.Windows.Interop;
 using System.Windows;
 using System.Linq;
-using dok.image.binarization.win.local;
 
 namespace dok.image.binarization.win
 {
@@ -114,7 +113,7 @@ namespace dok.image.binarization.win
         public static MeanStdDev MeanStdDev(this Mat source)
         {
             var mean = new Scalar();
-            var stdDev = new Scalar(); ;
+            var stdDev = new Scalar();
 
             Cv2.MeanStdDev(source, out mean, out stdDev);
 
@@ -123,6 +122,16 @@ namespace dok.image.binarization.win
                 Mean = mean,
                 StdDev = stdDev
             };
+        }
+
+        private static IEnumerable<double> AsEnumerable(this Scalar source, int channels)
+        {
+            var enumerable = new List<double>(channels);
+            for (int i = 0; i < channels; i++)
+            {
+                enumerable.Add(source[i]);
+            }
+            return enumerable;
         }
 
         public static int IndexOfBiggestStdDev(this MeanStdDev meanStdDev)
@@ -186,7 +195,7 @@ namespace dok.image.binarization.win
             {
                 var contours = sourceMat.FindContours(MinAreaForRegionOfInterest);
 
-                sourceMat.DrawContours(contours, -1, Scalar.Green, 10);
+                sourceMat.DrawContours(contours.Select(MapContourToPoints), -1, Scalar.Green, 10);
                 //Cv2.ImShow("Hell hole", sourceMat);
 
                 var bitmapSource = sourceMat
@@ -195,26 +204,21 @@ namespace dok.image.binarization.win
 
                 return bitmapSource;
             }
-            
         }
 
-        public static IEnumerable<RegionOfInterest> FindContours(this BitmapSource bitmapSource)
+        public static IEnumerable<Contour> FindContours(this BitmapSource bitmapSource)
         {
             var sourceMat = bitmapSource.ToMat();
-
             var contours = FindContours(sourceMat, MinAreaForRegionOfInterest);
-            var dimensions = sourceMat.Size().ToImageDimensions();
-            var rois = contours
-                .Select(MapPointsToImageCoordinates(dimensions))
-                .Select(MapImageCoordinatesToIntArray)
-                .Select(a => new RegionOfInterest(a.ToArray(), dimensions));
-            
-            return rois;
-
+            return contours;
         }
 
-        private static IEnumerable<IEnumerable<Point>> FindContours(this Mat sourceMat, double minArea)
+        private static IEnumerable<Contour> FindContours(this Mat sourceMat, double minArea)
         {
+            var sourceDimensions = sourceMat
+                .Size()
+                .ToImageDimensions();
+
             double threshold;
             using ( var reducedMat = sourceMat.ReduceForProcessing() )
             {
@@ -234,21 +238,14 @@ namespace dok.image.binarization.win
                                 {
                                     var area = Cv2.ContourArea(c, false);
                                     var contour = Cv2.ApproxPolyDP(c, 50, true);
-                                    return new Contour { Points = contour.ToArray(), Area = area };
+                                    return new Contour (contour.ToArray(), ProcessingSize, area);
                                 })
-                                    .Where(c => c.Area > MinAreaForRegionOfInterest);
+                                .Where(c => c.Area > MinAreaForRegionOfInterest);
 
-                        var contoursAsArray = largestContours.Select(c => c.Points.ToArray());
-                        var processingSizeRois = contoursAsArray
-                            .Select(c => new RegionOfInterest(c, ProcessingSize));
+                        var scaledRois = largestContours
+                            .Select(c => c.ScaleWith(sourceDimensions));
 
-                        var scaledRois = processingSizeRois
-                            .Select(c => c.ScaleWith(sourceMat.Size().ToImageDimensions()));
-
-                        var scaledAsPoints = scaledRois.Select(c => c.Points.Select(ic => ic.ToPoint()));
-
-
-                        return scaledAsPoints;
+                        return scaledRois;
                     }
                 }
             }
@@ -257,6 +254,21 @@ namespace dok.image.binarization.win
         private static IEnumerable<int[]> MapImageCoordinatesToIntArray(IEnumerable<ImageCoordinate> imageCoordinates)
         {
             return imageCoordinates.Select(ic => ic.ToArray());
+        }
+
+        private static IEnumerable<Point> MapImageCoordinatesToPoints(IEnumerable<ImageCoordinate> imageCoordinates)
+        {
+            return imageCoordinates.Select(ic => ic.ToPoint());
+        }
+
+        private static IEnumerable<IEnumerable<Point>> MapContoursToPoints(IEnumerable<Contour> contours)
+        {
+            return contours.Select(MapContourToPoints);
+        }
+
+        private static IEnumerable<Point> MapContourToPoints(Contour c)
+        {
+            return c.Points.Select(ic => ic.ToPoint());
         }
 
         private static Func<IEnumerable<Point>, IEnumerable<ImageCoordinate>> MapPointsToImageCoordinates(ImageDimensions dimensions)
@@ -274,11 +286,20 @@ namespace dok.image.binarization.win
             Mat roiMin, roiMax;
             MaxMinSamples(reducedMat, SampleSize, out roiMin, out roiMax);
 
-            var meanStdDevMin = roiMin.MeanStdDev();
-            var meanStdDevMax = roiMax.MeanStdDev();
+            var meanMin = roiMin
+                .Mean()
+                .AsEnumerable(1);
+            var meanMax = roiMax
+                .Mean()
+                .AsEnumerable(1);
             roiMin.Dispose();
             roiMax.Dispose();
-            var threshold = (meanStdDevMin.Mean.Val0 + meanStdDevMax.Mean.Val0) * 0.2;
+
+            var meanFull = reducedMat
+                .Mean()
+                .AsEnumerable(1);
+            
+            var threshold = (meanMin.First() * 0.5 + meanFull.First() * 0.2 + meanMax.First() * 0.3);
             return threshold;
         }
 
@@ -363,7 +384,7 @@ namespace dok.image.binarization.win
                 .ToArray();
         }
 
-        private static Point[] ToPointArray(this RegionOfInterest roi)
+        private static Point[] ToPointArray(this Contour roi)
         {
             var pointArray = roi.Points
                 .Select(ToPoint)
