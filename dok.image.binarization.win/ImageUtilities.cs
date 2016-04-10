@@ -220,33 +220,36 @@ namespace dok.image.binarization.win
             {
               threshold = GetThreshold(reducedMat);
                 using (var binMat = reducedMat.Threshold(threshold, 255, ThresholdType.Binary))
-                using (var edges = binMat.Canny(10, 20))
-                using(var dilated = edges.Dilate(Cv2.GetStructuringElement(StructuringElementShape.Cross, new Size(3, 3))))
                 {
-                    //Cv2.ImShow("Binary", binMat);
-                    //Cv2.ImShow("Dilated", dilated);
+                    binMat.Rectangle(new Rect(0, 0, binMat.Width, binMat.Height), Scalar.Black, 5);
+                    using (var edges = binMat.Canny(10, 20))
+                    using (var dilated = edges.Dilate(Cv2.GetStructuringElement(StructuringElementShape.Cross, new Size(3, 3))))
+                    {
+                        //Cv2.ImShow("Binary", binMat);
+                        //Cv2.ImShow("Dilated", dilated);
 
-                    var contours = dilated.FindContoursAsArray(ContourRetrieval.List, ContourChain.ApproxSimple);
-                    var largestContours = contours
-                            .Select(c =>
-                            {
-                                var area = Cv2.ContourArea(c, false);
-                                var contour = Cv2.ApproxPolyDP(c, 50, true);
-                                return new Contour { Points = contour.ToArray(), Area = area };
-                            })
-                                .Where(c => c.Area > MinAreaForRegionOfInterest);
+                        var contours = dilated.FindContoursAsArray(ContourRetrieval.List, ContourChain.ApproxSimple);
+                        var largestContours = contours
+                                .Select(c =>
+                                {
+                                    var area = Cv2.ContourArea(c, false);
+                                    var contour = Cv2.ApproxPolyDP(c, 50, true);
+                                    return new Contour { Points = contour.ToArray(), Area = area };
+                                })
+                                    .Where(c => c.Area > MinAreaForRegionOfInterest);
 
-                    var contoursAsArray = largestContours.Select(c => c.Points.ToArray());
-                    var processingSizeRois = contoursAsArray
-                        .Select(c => new RegionOfInterest(c, ProcessingSize));
+                        var contoursAsArray = largestContours.Select(c => c.Points.ToArray());
+                        var processingSizeRois = contoursAsArray
+                            .Select(c => new RegionOfInterest(c, ProcessingSize));
 
-                    var scaledRois = processingSizeRois
-                        .Select(c => c.ScaleWith(sourceMat.Size().ToImageDimensions()));
+                        var scaledRois = processingSizeRois
+                            .Select(c => c.ScaleWith(sourceMat.Size().ToImageDimensions()));
 
-                    var scaledAsPoints = scaledRois.Select(c => c.Points.Select(ic => ic.ToPoint()));
+                        var scaledAsPoints = scaledRois.Select(c => c.Points.Select(ic => ic.ToPoint()));
 
 
-                    return scaledAsPoints;
+                        return scaledAsPoints;
+                    }
                 }
             }
         }
