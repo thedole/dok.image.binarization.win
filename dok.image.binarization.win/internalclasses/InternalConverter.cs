@@ -71,5 +71,15 @@ namespace dok.image.binarization.win.internalclasses
                 Height = size.Height
             };
         }
+
+        internal static Size2f ToSize2f(this Size size)
+        {
+            return new Size2f(size.Width, size.Height);
+        }
+
+        internal static Size ToSize(this Size2f size)
+        {
+            return new Size(size.Width, size.Height);
+        }
     }
 }

@@ -22,6 +22,130 @@ namespace dok.image.binarization.win
         private static readonly Size SampleSize = new Size(10, 10);
         private static readonly Rect CenterSample = new Rect(CenterOfProcessingImage, SampleSize);
 
+        public static BitmapSource Match(BitmapSource queryBitmap, BitmapSource trainBitmap)
+        {
+            using (var queryMat = queryBitmap.ToMat())
+            using (var trainMat = trainBitmap.ToMat())
+            using (var outMat = trainMat.Clone())
+            {
+                var largestSize = trainMat.Size().Width > trainMat.Size().Height 
+                    ? trainMat.Size().Width 
+                    : trainMat.Size().Height;
+                var factor = (double)largestSize / 3000d;
+
+                using (var orb = new ORB((int)(10000/* * factor*/)))
+                {
+                    var keypointsQuery = orb.Detect(queryMat);
+                    Mat descriptorsQuery = new Mat();
+                    orb.Compute(queryMat, ref keypointsQuery, descriptorsQuery);
+
+                    var keypointsTrain = orb.Detect(trainMat);
+                    Mat descriptorsTrain = new Mat();
+                    orb.Compute(trainMat, ref keypointsTrain, descriptorsTrain);
+
+                    var bfMatcher = new BFMatcher(NormType.Hamming, crossCheck: false);
+                    var matches = bfMatcher.Match(descriptorsQuery, descriptorsTrain);
+
+                    var bestDistance = matches.Min(m => m.Distance);
+                    var limit = 20;
+                    if (bestDistance > limit)
+                    {
+                        return ReturnFailedMatch(outMat,"Best distance", bestDistance);
+                    }                  
+                    matches = matches.Where(m => m.Distance <= limit).ToArray();
+
+                    if (matches.Length < 25)
+                    {
+                        return ReturnFailedMatch(outMat, "count", matches.Length);
+                    }
+
+                    var angles = matches
+                        .Select(MatchRelativeAngle(keypointsQuery, keypointsTrain));
+                    
+                    var limitedAngles = angles
+                        .Select(Limit0To360);
+                    Scalar mean, stdDev;
+                    Cv2.MeanStdDev(InputArray.Create(limitedAngles), out mean, out stdDev);
+                    if (stdDev.Val0 > 10)
+                    {
+                        return ReturnFailedMatch(outMat, "angledev", stdDev.Val0);
+                    }
+
+                    var angle = Math.Ceiling(360 - limitedAngles
+                        .Average(a => Math.Ceiling(a)));
+
+                    var center = new Point2f(outMat.Width / 2, outMat.Height / 2);
+                    var destinationSize = new RotatedRect(center, outMat.Size().ToSize2f(), (float)angle)
+                        .BoundingRect()
+                        .Size;
+
+                    var transform = Cv2.GetRotationMatrix2D(center, angle, 1);
+                    transform.Set<double>(0, 2, transform.At<double>(0, 2) + destinationSize.Width / 2 - center.X);
+                    transform.Set<double>(1, 2, transform.At<double>(1, 2) + destinationSize.Height / 2 - center.Y);
+
+
+
+                    //var queryPoints = new List<Point2d>(matches.Length);
+                    //var trainPoints = new List<Point2d>(matches.Length);
+
+                    //for (int i = 0; i < matches.Length; i++)
+                    //{
+                    //    queryPoints.Add(new Point2d(keypointsQuery[matches[i].QueryIdx].Pt.X, keypointsQuery[matches[i].QueryIdx].Pt.Y));
+                    //    trainPoints.Add(new Point2d(keypointsTrain[matches[i].TrainIdx].Pt.X, keypointsTrain[matches[i].TrainIdx].Pt.Y));
+                    //}
+
+                    //Cv2.DrawMatches(queryMat, keypointsQuery, trainMat, keypointsTrain, matches, outMat, Scalar.Green);
+                    //var affine = Cv2.GetAffineTransform(trainPoints.Select(p => new Point2f((float)p.X, (float)p.Y)).Take(3), queryPoints.Select(p => new Point2f((float)p.X, (float)p.Y)).Take(3));
+                    //var transform = Cv2.FindHomography(trainPoints, queryPoints, HomographyMethod.Ransac);
+                    var transformedMat = outMat.WarpAffine(transform, destinationSize);
+                    var transformedCenter = new Point2f(transformedMat.Width / 2, transformedMat.Height / 2);
+                    //transformedMat.PutText($"{limit}", transformedCenter, FontFace.HersheyPlain, 15, Scalar.Green, 10);
+                    transformedMat.PutText($"{bestDistance}", new Point2f(0, transformedCenter.Y - 100), FontFace.HersheyPlain, (int)(10 * factor), Scalar.Green, (int)(15 * factor));
+                    transformedMat.PutText($"{mean.Val0:F1}-{stdDev.Val0:F1}", new Point2f(0, transformedCenter.Y + 100), FontFace.HersheyPlain, (int)(10 * factor), Scalar.Green, (int)(15 * factor));
+
+                    return transformedMat.ToBitmapSource();
+                }
+            }
+        }
+
+        private static BitmapSource ReturnFailedMatch(Mat outMat, string paramName, double param)
+        {
+            var resultMat = outMat.Clone();
+            var center = new Point2f(resultMat.Width / 2, resultMat.Height / 2);
+            resultMat.PutText($"{param}", center, FontFace.HersheyPlain, 15, Scalar.Green, 10);
+            var text = "Zero Matches";
+            int baseLine = 0;
+            var textSize = Cv2.GetTextSize(text, FontFace.HersheyPlain, 15, 10, out baseLine);
+            resultMat.PutText(paramName, new Point(0, textSize.Height * 1.5), FontFace.HersheyPlain, 15, Scalar.Red, 10);
+            resultMat.PutText(text, new Point(0, textSize.Height * 2.5), FontFace.HersheyPlain, 15, Scalar.Red, 10);
+
+            return resultMat.ToBitmapSource();
+        }
+
+        private static BitmapSource ReturnFailedMatch(Mat outMat, float bestDistance, Scalar mean, Scalar stdDev)
+        {
+            var resultMat = outMat.Clone();
+            var center = new Point2f(resultMat.Width / 2, resultMat.Height / 2);
+            resultMat.PutText($"{bestDistance}", new Point2f(0, center.Y), FontFace.HersheyPlain, 15, Scalar.Green, 10);
+            resultMat.PutText($"{mean.Val0:F1}-{stdDev.Val0:F1}", new Point2f(0, center.Y + 200), FontFace.HersheyPlain, 15, Scalar.Green, 10);
+            var text = "Zero Matches";
+            int baseLine = 0;
+            var textSize = Cv2.GetTextSize(text, FontFace.HersheyPlain, 15, 10, out baseLine);
+            resultMat.PutText(text, new Point(0, textSize.Height + 50), FontFace.HersheyPlain, 15, Scalar.Red, 10);
+
+            return resultMat.ToBitmapSource();
+        }
+
+        private static float Limit0To360(float a)
+        {
+            return (a < 0 ? (360 + a) : a) % 360;
+        }
+
+        private static Func<DMatch, float> MatchRelativeAngle(KeyPoint[] keypointsQuery, KeyPoint[] keypointsTrain)
+        {
+            return (m) =>  keypointsQuery[m.QueryIdx].Angle - keypointsTrain[m.TrainIdx].Angle;
+        }
+
         public static BitmapSource ReadImage(string path, LoadMode loadMode = LoadMode.AnyColor)
         {
             var img = Cv2.ImRead(path, (OpenCvSharp.LoadMode)loadMode);
@@ -150,7 +274,7 @@ namespace dok.image.binarization.win
             return destinationIplImage;
         }
 
-        public static Bitmap Binarize(this BitmapImage sourceBitmap, int size = 200, double k = 0.2, double r = 128)
+        public static Bitmap Binarize(this BitmapSource sourceBitmap, int size = 200, double k = 0.2, double r = 128)
         {
             using (var sourceMat = sourceBitmap.ToMat())
             {
@@ -196,6 +320,11 @@ namespace dok.image.binarization.win
             var largestContour = contours
                 .Aggregate(emptyContour, (a, c) => c.Area > a.Area ? c : a)
                 .ToPointArray();
+
+            if (largestContour.Count() == 0)
+            {
+                return sourceMat;
+            }
 
             var boundingBox = Cv2.BoundingRect(largestContour);
             return sourceMat[boundingBox].Clone();
